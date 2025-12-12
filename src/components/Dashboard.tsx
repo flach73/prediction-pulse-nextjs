@@ -42,7 +42,7 @@ export default function Dashboard({ initialMarkets }: DashboardProps) {
   }, [initialMarkets, sourceFilter, searchQuery])
 
   const sources = useMemo(() => {
-    return [...new Set(initialMarkets.map(m => m.source))]
+    return Array.from(new Set(initialMarkets.map(m => m.source)))
   }, [initialMarkets])
 
   return (

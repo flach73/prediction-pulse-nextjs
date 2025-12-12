@@ -1,11 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_KEY!
-)
-
 async function fetchKalshi() {
   try {
     const res = await fetch('https://api.elections.kalshi.com/trade-api/v2/markets?limit=50&status=open', {
@@ -30,16 +25,19 @@ async function fetchPolymarket() {
 }
 
 export async function GET() {
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_KEY!
+  )
+
   const now = new Date().toISOString()
   const results = { kalshi: 0, polymarket: 0, errors: [] as string[] }
 
-  // Process Kalshi
   const kalshiMarkets = await fetchKalshi()
   for (const market of kalshiMarkets) {
     try {
       const marketId = `kalshi_${market.ticker}`
       
-      // Upsert market
       const { error: marketError } = await supabase
         .from('markets')
         .upsert({
@@ -57,7 +55,6 @@ export async function GET() {
         continue
       }
 
-      // Upsert contract
       const contractId = `${marketId}_yes`
       const yesPrice = market.yes_ask || market.last_price || 0
 
@@ -78,7 +75,6 @@ export async function GET() {
         continue
       }
 
-      // Insert price
       await supabase.from('prices').insert({
         contract_id: contractId,
         price: yesPrice,
@@ -91,20 +87,17 @@ export async function GET() {
     }
   }
 
-  // Process Polymarket
   const polymarketMarkets = await fetchPolymarket()
   for (const market of polymarketMarkets) {
     try {
-      // Polymarket uses 'id' not 'condition_id' in gamma API
       const polyId = market.id || market.condition_id || market.questionID
       if (!polyId) {
-        results.errors.push(`Polymarket: missing ID for "${market.question?.slice(0,30)}"`)
+        results.errors.push(`Polymarket: missing ID`)
         continue
       }
       
       const marketId = `poly_${polyId}`
 
-      // Upsert market
       const { error: marketError } = await supabase
         .from('markets')
         .upsert({
@@ -113,7 +106,7 @@ export async function GET() {
           title: market.question || market.title || 'Unknown',
           category: market.category || 'general',
           status: market.closed ? 'closed' : 'open',
-          expiry_ts: market.endDate || market.end_date_iso || null,
+          expiry_ts: market.endDate || null,
           updated_at: now
         }, { onConflict: 'market_id' })
 
@@ -122,10 +115,16 @@ export async function GET() {
         continue
       }
 
-      // Get price - Polymarket stores it differently
-      const yesPrice = market.outcomePrices 
-        ? JSON.parse(market.outcomePrices)[0] 
-        : (market.bestAsk || market.lastTradePrice || 0)
+      let yesPrice = 0
+      try {
+        if (market.outcomePrices) {
+          yesPrice = JSON.parse(market.outcomePrices)[0]
+        } else {
+          yesPrice = market.bestAsk || market.lastTradePrice || 0
+        }
+      } catch {
+        yesPrice = 0
+      }
 
       const contractId = `${marketId}_yes`
 
@@ -146,7 +145,6 @@ export async function GET() {
         continue
       }
 
-      // Insert price
       await supabase.from('prices').insert({
         contract_id: contractId,
         price: parseFloat(yesPrice) || 0,

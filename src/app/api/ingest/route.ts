@@ -56,7 +56,7 @@ export async function GET() {
       }
 
       const contractId = `${marketId}_yes`
-      const yesPrice = market.yes_ask || market.last_price || 0
+      const yesPrice = Number(market.yes_ask || market.last_price || 0)
 
       const { error: contractError } = await supabase
         .from('contracts')
@@ -66,7 +66,7 @@ export async function GET() {
           ticker: market.ticker,
           title: 'Yes',
           yes_price: yesPrice,
-          volume_24h: market.volume_24h || 0,
+          volume_24h: Number(market.volume_24h || 0),
           updated_at: now
         }, { onConflict: 'contract_id' })
 
@@ -115,12 +115,13 @@ export async function GET() {
         continue
       }
 
-      let yesPrice = 0
+      let yesPrice: number = 0
       try {
         if (market.outcomePrices) {
-          yesPrice = JSON.parse(market.outcomePrices)[0]
+          const parsed = JSON.parse(market.outcomePrices)[0]
+          yesPrice = typeof parsed === 'string' ? parseFloat(parsed) : Number(parsed) || 0
         } else {
-          yesPrice = market.bestAsk || market.lastTradePrice || 0
+          yesPrice = Number(market.bestAsk || market.lastTradePrice || 0)
         }
       } catch {
         yesPrice = 0
@@ -135,8 +136,8 @@ export async function GET() {
           market_id: marketId,
           ticker: polyId,
           title: 'Yes',
-          yes_price: parseFloat(yesPrice) || 0,
-          volume_24h: parseFloat(market.volume24hr || market.volume || 0),
+          yes_price: yesPrice,
+          volume_24h: Number(market.volume24hr || market.volume || 0),
           updated_at: now
         }, { onConflict: 'contract_id' })
 
@@ -147,7 +148,7 @@ export async function GET() {
 
       await supabase.from('prices').insert({
         contract_id: contractId,
-        price: parseFloat(yesPrice) || 0,
+        price: yesPrice,
         timestamp: now
       })
 

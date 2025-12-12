@@ -1,5 +1,10 @@
 'use client'
 
+interface Price {
+  price: number
+  timestamp: string
+}
+
 interface Contract {
   id: string
   contract_id: string
@@ -7,6 +12,7 @@ interface Contract {
   title: string
   yes_price: number
   volume_24h: number
+  prices?: Price[]
 }
 
 interface Market {

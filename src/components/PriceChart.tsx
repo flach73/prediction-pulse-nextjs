@@ -13,7 +13,7 @@ interface Contract {
   ticker: string
   title: string
   yes_price: number
-  prices: Price[]
+  prices?: Price[]
 }
 
 interface PriceChartProps {

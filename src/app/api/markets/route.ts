@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@/lib/supabase'
+import { createServiceClient } from '@/lib/supabase'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET(request: NextRequest) {
-  const supabase = createServerClient()
-  
+  const supabase = createServiceClient()
   const searchParams = request.nextUrl.searchParams
   const source = searchParams.get('source')
   const category = searchParams.get('category')

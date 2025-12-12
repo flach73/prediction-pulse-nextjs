@@ -14,7 +14,26 @@ export async function GET(request: NextRequest) {
   try {
     let query = supabase
       .from('markets')
-      .select('*, contracts(id, contract_ticker, side)')
+      .select(`
+        market_id,
+        source,
+        title,
+        category,
+        status,
+        expiry_ts,
+        updated_at,
+        contracts (
+          contract_id,
+          ticker,
+          title,
+          yes_price,
+          volume_24h,
+          prices (
+            price,
+            timestamp
+          )
+        )
+      `)
       .order('updated_at', { ascending: false })
       .limit(limit)
 
@@ -31,6 +50,7 @@ export async function GET(request: NextRequest) {
     const { data, error } = await query
 
     if (error) {
+      console.error('Supabase error:', error)
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 

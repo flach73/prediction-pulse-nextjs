@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
+export const dynamic = 'force-dynamic'
+
 async function fetchKalshi() {
   try {
     const res = await fetch('https://api.elections.kalshi.com/trade-api/v2/markets?limit=50&status=open', {

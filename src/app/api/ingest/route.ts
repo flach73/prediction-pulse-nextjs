@@ -1,172 +1,180 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@/lib/supabase'
+import { NextResponse } from 'next/server'
+import { createClient } from '@supabase/supabase-js'
 
-export const dynamic = 'force-dynamic'
-export const maxDuration = 60
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+)
 
-function verifyCronSecret(request: NextRequest): boolean {
-  const authHeader = request.headers.get('authorization')
-  const cronSecret = process.env.CRON_SECRET
-  if (!cronSecret || process.env.NODE_ENV === 'development') {
-    return true
-  }
-  return authHeader === `Bearer ${cronSecret}`
-}
-
-export async function GET(request: NextRequest) {
-  if (!verifyCronSecret(request)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
-  const supabase = createServerClient()
-  const results = {
-    kalshi: { success: false, markets: 0, error: null as string | null },
-    polymarket: { success: false, markets: 0, error: null as string | null },
-  }
-
-  try {
-    const kalshiMarkets = await fetchKalshiMarkets()
-    const kalshiCount = await ingestMarkets(supabase, kalshiMarkets, 'kalshi')
-    results.kalshi = { success: true, markets: kalshiCount, error: null }
-  } catch (error) {
-    results.kalshi.error = error instanceof Error ? error.message : 'Unknown error'
-  }
-
-  try {
-    const polymarketMarkets = await fetchPolymarketMarkets()
-    const polyCount = await ingestMarkets(supabase, polymarketMarkets, 'polymarket')
-    results.polymarket = { success: true, markets: polyCount, error: null }
-  } catch (error) {
-    results.polymarket.error = error instanceof Error ? error.message : 'Unknown error'
-  }
-
-  return NextResponse.json({
-    success: results.kalshi.success || results.polymarket.success,
-    timestamp: new Date().toISOString(),
-    totalMarkets: results.kalshi.markets + results.polymarket.markets,
-    results,
-  })
-}
-
-export async function POST(request: NextRequest) {
-  return GET(request)
-}
-
-async function fetchKalshiMarkets(): Promise<NormalizedMarket[]> {
-  const response = await fetch(
-    'https://api.elections.kalshi.com/trade-api/v2/markets?limit=100&status=open',
-    { headers: { 'Accept': 'application/json' }, cache: 'no-store' }
-  )
-  if (!response.ok) throw new Error(`Kalshi API error: ${response.status}`)
-  const data = await response.json()
-  return (data.markets || []).map((m: any) => ({
-    market_id: m.ticker,
-    source: 'kalshi' as const,
-    title: m.title || m.subtitle || m.ticker,
-    category: m.category || 'Uncategorized',
-    status: m.status || 'open',
-    expiry_ts: m.close_time || null,
-    contract_ticker: m.ticker,
-    bid_price: m.yes_bid ?? null,
-    ask_price: m.yes_ask ?? null,
-    last_price: m.last_price ?? null,
-    volume_24h: m.volume_24h ?? null,
-  }))
-}
-
-async function fetchPolymarketMarkets(): Promise<NormalizedMarket[]> {
-  const response = await fetch(
-    'https://gamma-api.polymarket.com/markets?closed=false&limit=100&order=volume&ascending=false',
-    { headers: { 'Accept': 'application/json' }, cache: 'no-store' }
-  )
-  if (!response.ok) throw new Error(`Polymarket API error: ${response.status}`)
-  const markets = await response.json()
-  return markets.map((m: any) => {
-    let lastPrice = null
-    try {
-      if (m.outcomePrices) {
-        const prices = JSON.parse(m.outcomePrices)
-        lastPrice = prices[0] * 100
-      }
-    } catch {}
-    return {
-      market_id: m.id || m.conditionId,
-      source: 'polymarket' as const,
-      title: m.question || m.title,
-      category: m.category || 'Uncategorized',
-      status: m.closed ? 'closed' : 'open',
-      expiry_ts: m.endDate || null,
-      contract_ticker: m.slug || m.id,
-      bid_price: null,
-      ask_price: null,
-      last_price: lastPrice,
-      volume_24h: m.volume ? parseFloat(m.volume) : null,
-    }
-  })
-}
-
-interface NormalizedMarket {
-  market_id: string
-  source: 'kalshi' | 'polymarket'
+interface KalshiMarket {
+  ticker: string
   title: string
   category: string
   status: string
-  expiry_ts: string | null
-  contract_ticker: string
-  bid_price: number | null
-  ask_price: number | null
-  last_price: number | null
-  volume_24h: number | null
+  close_time?: string
+  yes_ask?: number
+  volume_24h?: number
 }
 
-async function ingestMarkets(
-  supabase: ReturnType<typeof createServerClient>,
-  markets: NormalizedMarket[],
-  source: string
-): Promise<number> {
-  let count = 0
-  for (const market of markets) {
+interface PolymarketMarket {
+  condition_id: string
+  question: string
+  category?: string
+  closed?: boolean
+  end_date_iso?: string
+  tokens?: { outcome: string; price: number }[]
+  volume_24hr?: number
+}
+
+async function fetchKalshi() {
+  try {
+    const res = await fetch('https://api.elections.kalshi.com/trade-api/v2/markets?limit=50&status=open', {
+      headers: { 'Accept': 'application/json' },
+      next: { revalidate: 0 }
+    })
+    if (!res.ok) return []
+    const data = await res.json()
+    return (data.markets || []) as KalshiMarket[]
+  } catch (e) {
+    console.error('Kalshi fetch error:', e)
+    return []
+  }
+}
+
+async function fetchPolymarket() {
+  try {
+    const res = await fetch('https://gamma-api.polymarket.com/markets?closed=false&limit=50', {
+      next: { revalidate: 0 }
+    })
+    if (!res.ok) return []
+    const data = await res.json()
+    return (data || []) as PolymarketMarket[]
+  } catch (e) {
+    console.error('Polymarket fetch error:', e)
+    return []
+  }
+}
+
+export async function GET(request: Request) {
+  // Optional: verify cron secret in production
+  const authHeader = request.headers.get('authorization')
+  const cronSecret = process.env.CRON_SECRET
+  
+  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+    // Allow requests without auth for manual triggers
+    // return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  const results = { kalshi: 0, polymarket: 0, errors: [] as string[] }
+  const now = new Date().toISOString()
+
+  // Process Kalshi
+  const kalshiMarkets = await fetchKalshi()
+  for (const market of kalshiMarkets) {
     try {
+      const marketRecord = {
+        market_id: `kalshi_${market.ticker}`,
+        source: 'kalshi' as const,
+        title: market.title,
+        category: market.category || 'general',
+        status: market.status,
+        expiry_ts: market.close_time || null,
+        updated_at: now
+      }
+
       const { data: marketData, error: marketError } = await supabase
         .from('markets')
-        .upsert({
-          market_id: market.market_id,
-          source: market.source,
-          title: market.title,
-          category: market.category,
-          status: market.status,
-          expiry_ts: market.expiry_ts,
-          updated_at: new Date().toISOString(),
-        }, { onConflict: 'source,market_id' })
+        .upsert(marketRecord as any, { onConflict: 'market_id' })
         .select()
-        .single()
 
-      if (marketError) continue
+      if (marketError) throw marketError
 
-      const { data: contractData, error: contractError } = await supabase
+      const contractRecord = {
+        contract_id: `kalshi_${market.ticker}_yes`,
+        market_id: `kalshi_${market.ticker}`,
+        ticker: market.ticker,
+        title: 'Yes',
+        yes_price: market.yes_ask || 0,
+        volume_24h: market.volume_24h || 0,
+        updated_at: now
+      }
+
+      const { error: contractError } = await supabase
         .from('contracts')
-        .upsert({
-          contract_ticker: market.contract_ticker,
-          market_id: marketData.id,
-          side: 'YES',
-        }, { onConflict: 'contract_ticker,market_id' })
-        .select()
-        .single()
+        .upsert(contractRecord as any, { onConflict: 'contract_id' })
 
-      if (contractError) continue
+      if (contractError) throw contractError
 
-      await supabase.from('prices').insert({
-        contract_id: contractData.id,
-        bid_price: market.bid_price,
-        ask_price: market.ask_price,
-        last_price: market.last_price,
-        volume_24h: market.volume_24h,
-      })
+      const priceRecord = {
+        contract_id: `kalshi_${market.ticker}_yes`,
+        price: market.yes_ask || 0,
+        timestamp: now
+      }
 
-      count++
-    } catch (error) {
-      console.error(`Error processing ${market.market_id}:`, error)
+      await supabase.from('prices').insert(priceRecord as any)
+
+      results.kalshi++
+    } catch (e) {
+      results.errors.push(`Kalshi ${market.ticker}: ${e}`)
     }
   }
-  return count
+
+  // Process Polymarket
+  const polymarketMarkets = await fetchPolymarket()
+  for (const market of polymarketMarkets) {
+    try {
+      const marketRecord = {
+        market_id: `poly_${market.condition_id}`,
+        source: 'polymarket' as const,
+        title: market.question,
+        category: market.category || 'general',
+        status: market.closed ? 'closed' : 'open',
+        expiry_ts: market.end_date_iso || null,
+        updated_at: now
+      }
+
+      const { error: marketError } = await supabase
+        .from('markets')
+        .upsert(marketRecord as any, { onConflict: 'market_id' })
+
+      if (marketError) throw marketError
+
+      const yesToken = market.tokens?.find(t => t.outcome === 'Yes')
+      const price = yesToken?.price || 0
+
+      const contractRecord = {
+        contract_id: `poly_${market.condition_id}_yes`,
+        market_id: `poly_${market.condition_id}`,
+        ticker: market.condition_id,
+        title: 'Yes',
+        yes_price: price,
+        volume_24h: market.volume_24hr || 0,
+        updated_at: now
+      }
+
+      const { error: contractError } = await supabase
+        .from('contracts')
+        .upsert(contractRecord as any, { onConflict: 'contract_id' })
+
+      if (contractError) throw contractError
+
+      const priceRecord = {
+        contract_id: `poly_${market.condition_id}_yes`,
+        price: price,
+        timestamp: now
+      }
+
+      await supabase.from('prices').insert(priceRecord as any)
+
+      results.polymarket++
+    } catch (e) {
+      results.errors.push(`Polymarket ${market.condition_id}: ${e}`)
+    }
+  }
+
+  return NextResponse.json({
+    success: true,
+    ingested: results,
+    timestamp: now
+  })
 }

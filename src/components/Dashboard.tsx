@@ -4,6 +4,11 @@ import { useState, useMemo } from 'react'
 import MarketTable from './MarketTable'
 import PriceChart from './PriceChart'
 
+interface Price {
+  price: number
+  timestamp: string
+}
+
 interface Contract {
   id: string
   contract_id: string
@@ -11,7 +16,7 @@ interface Contract {
   title: string
   yes_price: number
   volume_24h: number
-  prices: { price: number; timestamp: string }[]
+  prices?: Price[]
 }
 
 interface Market {
@@ -79,7 +84,7 @@ export default function Dashboard({ initialMarkets }: DashboardProps) {
           <MarketTable
             markets={filteredMarkets}
             selectedMarket={selectedMarket}
-            onSelectMarket={setSelectedMarket}
+            onSelectMarket={(market) => setSelectedMarket(market)}
           />
         </div>
         <div className="lg:col-span-1">

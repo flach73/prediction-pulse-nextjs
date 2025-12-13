@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase"
+import { createServiceClient } from "@/lib/supabase"
 import Dashboard from "@/components/Dashboard"
 
 export const revalidate = 300
@@ -31,7 +31,7 @@ interface Market {
 }
 
 async function getMarkets() {
-  const supabase = createClient()
+  const supabase = createServiceClient()
   
   const { data: marketsData, error: marketsError } = await supabase
     .from("markets")

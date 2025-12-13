@@ -1,5 +1,4 @@
 'use client'
-
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 
 interface Price {
@@ -35,28 +34,31 @@ export default function PriceChart({ contracts }: PriceChartProps) {
     .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
     .map(p => ({
       time: new Date(p.timestamp).toLocaleDateString([], { month: 'short', day: 'numeric' }),
-      price: Math.round(p.price * 100),
+      price: p.price > 1 ? Math.round(p.price) : Math.round(p.price * 100),
     }))
+
+  const currentPrice = topContract.yes_price > 1 
+    ? Math.round(topContract.yes_price) 
+    : Math.round(topContract.yes_price * 100)
 
   return (
     <div>
       <div className="flex items-baseline gap-2 mb-4">
         <span className="text-2xl font-semibold text-[var(--accent-cyan)]">
-          {Math.round(topContract.yes_price * 100)}¢
+          {currentPrice}¢
         </span>
         <span className="text-sm text-[var(--text-muted)]">Yes</span>
       </div>
-      
       <div className="h-48">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={chartData}>
-            <XAxis 
-              dataKey="time" 
+            <XAxis
+              dataKey="time"
               axisLine={false}
               tickLine={false}
               tick={{ fontSize: 11, fill: 'var(--text-muted)' }}
             />
-            <YAxis 
+            <YAxis
               domain={[0, 100]}
               axisLine={false}
               tickLine={false}

@@ -37,7 +37,7 @@ async function getMarkets() {
     .from("markets")
     .select("*")
     .order("updated_at", { ascending: false })
-    .limit(50)
+    .limit(200)
 
   if (marketsError || !marketsData) {
     console.error("Error fetching markets:", marketsError)
